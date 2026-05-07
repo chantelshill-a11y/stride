@@ -1,0 +1,8 @@
+{
+  "name": "Northridge mid-sprint check action items",
+  "description": "Action Tracker over the synthetic mid-sprint transcript.",
+  "expected": {
+    "minNewItems": 3,
+    "containsTitles": ["false-positive review packet", "playbook timeline", "DocuSign sandbox"]
+  }
+}

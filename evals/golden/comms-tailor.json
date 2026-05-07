@@ -1,0 +1,10 @@
+{
+  "name": "Northridge day-6 tailored comms",
+  "description": "Comms Tailor producing standup/exec/client/skip-level drafts from the approved status + open risks.",
+  "expected": {
+    "fields": ["standup", "exec", "client", "skipLevel"],
+    "execMaxWords": 200,
+    "execMustMention": ["May 22", "60%", "confidence"],
+    "clientMustNotMention": ["NRF-", "DocuSign", "Sarah", "Rohan"]
+  }
+}

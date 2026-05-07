@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Stride">
+  <!--
+    Maskable icon: the brand mark sits inside the safe zone (centered ~80% of
+    the canvas) so platforms that crop the icon to a circle/squircle don't cut
+    off the lettering.
+  -->
+  <rect width="512" height="512" fill="#2C4A35"/>
+  <text
+    x="256"
+    y="336"
+    font-family="Georgia, 'Playfair Display', 'Times New Roman', serif"
+    font-size="290"
+    font-weight="500"
+    text-anchor="middle"
+    fill="#F7F5F1"
+    letter-spacing="-8"
+  >S</text>
+</svg>

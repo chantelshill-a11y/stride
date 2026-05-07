@@ -1,0 +1,9 @@
+{
+  "name": "Northridge mid-sprint check summaries",
+  "description": "Meeting Summarizer producing team/exec/client summaries of the synthetic mid-sprint transcript.",
+  "expected": {
+    "fields": ["team", "exec", "client"],
+    "execMustMention": ["May 22", "confidence", "60"],
+    "clientMustNotMention": ["NRF-", "DocuSign", "Sarah", "Rohan"]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Northridge mid-sprint status read",
+  "description": "Status Synthesizer over the synthetic Northridge Phase 2 engagement on day 6 of Sprint 4.",
+  "expected": {
+    "containsTitles": ["indemnification", "limitation of liability", "DocuSign", "playbook"],
+    "minObservations": 2,
+    "minSlipping": 1,
+    "blockedAtLeast": 1
+  }
+}

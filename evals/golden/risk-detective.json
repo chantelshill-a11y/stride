@@ -1,0 +1,8 @@
+{
+  "name": "Northridge mid-sprint risk delta",
+  "description": "Risk Detective over the synthetic Northridge Phase 2 engagement. Should NOT duplicate the attorney sign-off bottleneck, the DocuSign Insight dependency, or the LoL F1 plateau (already in tracker), but may surface confidence updates.",
+  "expected": {
+    "noDuplicateOf": ["attorney sign-off", "DocuSign Insight", "carve-out", "LoL F1"],
+    "maxNewRisks": 4
+  }
+}

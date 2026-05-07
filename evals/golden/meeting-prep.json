@@ -1,0 +1,9 @@
+{
+  "name": "Northridge day-6 meeting prep",
+  "description": "Meeting Prep over today's synthetic calendar. Four meetings expected.",
+  "expected": {
+    "meetingCount": 4,
+    "containsTitles": ["standup", "exec readout", "threshold review"],
+    "minTalkingPointsPerMeeting": 3
+  }
+}
