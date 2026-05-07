@@ -8,9 +8,16 @@ interface Props {
   runId: string;
   gate: HITLGate;
   onResolved: () => void;
+  /**
+   * Optional client-side decision handler. When provided, the card calls this
+   * with the user's decision instead of POSTing to /api/approve. Used by the
+   * client-side orchestrator (live mode) so it can resolve its in-memory gate
+   * Promise. Replay/server mode keeps the /api/approve round-trip.
+   */
+  onDecide?: (decision: GateDecision) => void | Promise<void>;
 }
 
-export function HITLGateCard({ runId, gate, onResolved }: Props) {
+export function HITLGateCard({ runId, gate, onResolved, onDecide }: Props) {
   const [currentPayload, setCurrentPayload] = useState<unknown>(gate.payload);
   const [instruction, setInstruction] = useState('');
   const [revising, setRevising] = useState(false);
@@ -60,14 +67,20 @@ export function HITLGateCard({ runId, gate, onResolved }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch('/api/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runId, gateId: gate.id, decision }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error ?? `Approve failed (${res.status})`);
+      if (onDecide) {
+        // Client-side orchestrator: resolve the in-memory gate Promise.
+        await onDecide(decision);
+      } else {
+        // Replay / server-side orchestrator: POST to /api/approve.
+        const res = await fetch('/api/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId, gateId: gate.id, decision }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error ?? `Approve failed (${res.status})`);
+        }
       }
       onResolved();
     } catch (err) {

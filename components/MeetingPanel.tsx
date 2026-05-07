@@ -49,6 +49,7 @@ export function MeetingPanel({ defaultTranscript }: Props) {
         ctaLabel="Run meeting mode"
         description="Synthetic Northridge Phase 2 mid-sprint transcript by default. Each agent appears in the trace as it starts; the reviewer's verdict attaches to its row; HITL gates appear in the right column when it's your turn."
         meetingTranscript={transcript}
+        meetingTitle="Northridge Phase 2 — Sprint 4 mid-sprint check"
       />
     </div>
   );

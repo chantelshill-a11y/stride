@@ -20,8 +20,14 @@ export async function GET() {
 }
 
 interface ManualEdit {
-  op: 'upsert-risk' | 'upsert-action' | 'upsert-workstream' | 'delete-risk' | 'delete-action';
-  payload: Risk | ActionItem | Workstream | { id: string };
+  op:
+    | 'upsert-risk'
+    | 'upsert-action'
+    | 'upsert-workstream'
+    | 'delete-risk'
+    | 'delete-action'
+    | 'replace-all';
+  payload: Risk | ActionItem | Workstream | { id: string } | TrackerState;
 }
 
 export async function POST(req: Request) {
@@ -67,6 +73,14 @@ export async function POST(req: Request) {
       const id = (body.payload as { id: string }).id;
       next.actionItems = next.actionItems.filter((a) => a.id !== id);
       break;
+    }
+    case 'replace-all': {
+      // Used by the client-side orchestrator to commit a full curated tracker
+      // state at the end of a Morning Brief / Meeting Mode run.
+      const t = body.payload as TrackerState;
+      t.updatedAt = new Date().toISOString();
+      await saveTracker(t);
+      return Response.json(t);
     }
     default:
       return Response.json({ error: 'Unknown op' }, { status: 400 });

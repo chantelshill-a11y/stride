@@ -5,9 +5,12 @@ import { AgentTracePanel } from './AgentTracePanel';
 import { HITLGateCard } from './HITLGateCard';
 import { BriefView } from './BriefView';
 import { MeetingArtifactView } from './MeetingArtifactView';
+import { orchestrateMorningBrief } from './lib/orchestrate-morning-brief';
+import { orchestrateMeetingMode } from './lib/orchestrate-meeting-mode';
 import type {
   AgentEvent,
   BriefArtifact,
+  GateDecision,
   HITLGate,
   MeetingArtifact,
 } from '../agents/shared/types';
@@ -19,6 +22,7 @@ interface RunPlayerProps {
   ctaLabel?: string;
   description?: string;
   meetingTranscript?: string;
+  meetingTitle?: string;
 }
 
 export function RunPlayer({
@@ -26,6 +30,7 @@ export function RunPlayer({
   ctaLabel = 'Run',
   description,
   meetingTranscript,
+  meetingTitle,
 }: RunPlayerProps) {
   const [status, setStatus] = useState<RunStatus>('idle');
   const [runId, setRunId] = useState<string | null>(null);
@@ -37,6 +42,13 @@ export function RunPlayer({
   const [traceMode, setTraceMode] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
+  /**
+   * Pending gate Promise resolvers, keyed by gateId. Populated when the
+   * client orchestrator opens a gate; emptied when the user clicks
+   * Approve/Edit/Reject and we resolve the corresponding Promise.
+   */
+  const gateResolversRef = useRef<Map<string, (decision: GateDecision) => void>>(new Map());
+
   const handleEvent = useCallback((e: AgentEvent | { type: 'run:hello'; runId: string }) => {
     if (e.type === 'run:hello') {
       setRunId(e.runId);
@@ -44,7 +56,9 @@ export function RunPlayer({
     }
     setEvents((prev) => [...prev, e as AgentEvent]);
 
-    if (e.type === 'gate:open') {
+    if (e.type === 'run:start') {
+      setRunId(e.runId);
+    } else if (e.type === 'gate:open') {
       setOpenGates((prev) => [...prev, e.gate]);
       setStatus('awaiting');
     } else if (e.type === 'gate:resolved') {
@@ -60,6 +74,29 @@ export function RunPlayer({
     }
   }, []);
 
+  /**
+   * Returns a Promise that resolves with the user's gate decision. The
+   * resolver is stashed in gateResolversRef and fired by HITLGateCard's
+   * onDecide callback when the user clicks Approve/Edit/Reject.
+   */
+  const openGate = useCallback((gate: HITLGate): Promise<GateDecision> => {
+    return new Promise<GateDecision>((resolve) => {
+      gateResolversRef.current.set(gate.id, resolve);
+    });
+  }, []);
+
+  const onGateDecide = useCallback((gateId: string, decision: GateDecision) => {
+    const resolver = gateResolversRef.current.get(gateId);
+    if (resolver) {
+      gateResolversRef.current.delete(gateId);
+      resolver(decision);
+    }
+    // Optimistically remove the card; the orchestrator will also emit
+    // gate:resolved which will redundantly remove it from openGates.
+    setOpenGates((prev) => prev.filter((g) => g.id !== gateId));
+    setStatus('running');
+  }, []);
+
   const start = useCallback(async () => {
     setStatus('running');
     setEvents([]);
@@ -68,11 +105,56 @@ export function RunPlayer({
     setMeeting(null);
     setError(null);
     setRunId(null);
+    gateResolversRef.current.clear();
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
+      // Decide whether to use the client-side orchestrator (live mode, with
+      // ANTHROPIC_API_KEY on the server) or the server-side replay endpoint.
+      const modeRes = await fetch('/api/mode', { cache: 'no-store', signal: controller.signal });
+      const { live } = (await modeRes.json()) as { live: boolean; replay: boolean };
+
+      if (live && (mode === 'morning-brief' || mode === 'meeting-mode')) {
+        await runClientSide(controller.signal);
+      } else {
+        await runServerSide(controller.signal);
+      }
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      setError((err as Error).message);
+      setStatus('error');
+    }
+  }, [mode, handleEvent, openGate, meetingTranscript, meetingTitle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Live mode: run the orchestrator in the browser, calling /api/agent per agent. */
+  const runClientSide = useCallback(
+    async (signal: AbortSignal) => {
+      if (mode === 'morning-brief') {
+        await orchestrateMorningBrief({
+          onEvent: (e) => handleEvent(e),
+          openGate,
+          signal,
+        });
+      } else if (mode === 'meeting-mode') {
+        const transcript = meetingTranscript ?? '';
+        const title = meetingTitle ?? 'Meeting';
+        await orchestrateMeetingMode({
+          transcript,
+          meetingTitle: title,
+          onEvent: (e) => handleEvent(e),
+          openGate,
+          signal,
+        });
+      }
+    },
+    [mode, meetingTranscript, meetingTitle, handleEvent, openGate],
+  );
+
+  /** Replay / status-only mode: server-side orchestrator on /api/run. */
+  const runServerSide = useCallback(
+    async (signal: AbortSignal) => {
       const res = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -80,7 +162,7 @@ export function RunPlayer({
           mode,
           meetingTranscript: mode === 'meeting-mode' ? meetingTranscript : undefined,
         }),
-        signal: controller.signal,
+        signal,
       });
       if (!res.ok || !res.body) {
         throw new Error(`Run failed to start: ${res.status} ${res.statusText}`);
@@ -110,20 +192,17 @@ export function RunPlayer({
           }
         }
       }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
-      setError((err as Error).message);
-      setStatus('error');
-    }
-  }, [mode, handleEvent]);
+    },
+    [mode, meetingTranscript, handleEvent],
+  );
 
   useEffect(() => {
     return () => abortRef.current?.abort();
   }, []);
 
   const handleGateResolved = useCallback(() => {
-    // Optimistic UI update; the gate:resolved event from the stream will
-    // also remove it, but this keeps the UI snappy if the event lags.
+    // Optimistic UI update; the gate:resolved event from the orchestrator
+    // will also remove it, but this keeps the UI snappy if the event lags.
   }, []);
 
   return (
@@ -181,14 +260,20 @@ export function RunPlayer({
             </div>
           )}
 
-          {openGates.map((gate) => (
-            <HITLGateCard
-              key={gate.id}
-              runId={runId ?? ''}
-              gate={gate}
-              onResolved={handleGateResolved}
-            />
-          ))}
+          {openGates.map((gate) => {
+            const hasClientResolver = gateResolversRef.current.has(gate.id);
+            return (
+              <HITLGateCard
+                key={gate.id}
+                runId={runId ?? ''}
+                gate={gate}
+                onResolved={handleGateResolved}
+                onDecide={
+                  hasClientResolver ? (decision) => onGateDecide(gate.id, decision) : undefined
+                }
+              />
+            );
+          })}
 
           {brief && <BriefView brief={brief} />}
           {meeting && <MeetingArtifactView artifact={meeting} />}
@@ -221,3 +306,4 @@ function RunStatusPill({ status }: { status: RunStatus }) {
   }[status];
   return <span className={`text-xs uppercase tracking-widest ${cls}`}>{label}</span>;
 }
+

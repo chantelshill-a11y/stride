@@ -14,13 +14,13 @@ import type { ProposedEvent } from '../../../agents/calendar-export';
 import { replayMorningBrief } from '../../../agents/replay/morning-brief-replay';
 import { replayMeetingMode } from '../../../agents/replay/meeting-mode-replay';
 
-// Edge runtime: Netlify Functions on Lambda cap streaming at ~30s, which
-// is shorter than a full Morning Brief. Edge runtime streams up to 10 min
-// with no per-event idle limit > 50s, which fits the orchestration cleanly.
-// Anthropic SDK is fetch-based and runs cleanly in Edge.
-export const runtime = 'edge';
+// /api/run is now used only for replay mode (deterministic playback, no
+// Anthropic calls) and the export-calendar path. Both finish well under
+// Netlify Lambda's 30s streaming cap, so plain Node.js runtime is fine.
+// Live mode runs in the browser via components/lib/orchestrate-*.ts,
+// which calls /api/agent once per agent (each <30s).
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
 
 interface RunRequest {
   mode: 'status-only' | 'morning-brief' | 'meeting-mode' | 'export-calendar';
