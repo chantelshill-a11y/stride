@@ -4,12 +4,15 @@
  * orchestrator) or whether it should fall back to the server-side replay
  * orchestrator on /api/run.
  *
- * Doesn't leak the key — only a boolean.
+ * Also returns a build marker so we can verify which deploy is live
+ * without inspecting the JS bundle. Doesn't leak the key — only a boolean.
  */
 
 export const runtime = 'nodejs';
 
+const BUILD_MARKER = 'client-orchestration-2026-05-07';
+
 export async function GET() {
   const live = Boolean(process.env.ANTHROPIC_API_KEY);
-  return Response.json({ live, replay: !live });
+  return Response.json({ live, replay: !live, build: BUILD_MARKER });
 }
