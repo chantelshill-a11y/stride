@@ -161,8 +161,11 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentOutput> {
       break;
     }
 
-    const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
-
+    // Emit agent:tool events synchronously for the trace, then run all
+    // tool executions in parallel. Synthetic adapter is in-process and fast,
+    // but real adapters (Graph / Google Calendar) make network calls — the
+    // parallelism matters for them, and the trace reads more honestly when
+    // multiple fetches actually happen concurrently.
     for (const toolUse of toolUses) {
       emit(run, {
         type: 'agent:tool',
@@ -172,54 +175,58 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentOutput> {
         input: toolUse.input,
         ts: Date.now(),
       });
-
-      let resultText = '';
-      try {
-        if (toolUse.name === 'submit') {
-          const sub = toolUse.input as { output: unknown; confidence: number; notes?: string };
-          submission = onSubmit(sub);
-          resultText = 'submitted';
-        } else if (toolUse.name === 'fetch_sprint_board') {
-          const board = await adapter.fetch('sprint-board', {});
-          resultText = JSON.stringify(board);
-        } else if (toolUse.name === 'fetch_calendar') {
-          const input = toolUse.input as { rangeStart: string; rangeEnd: string };
-          const cal = await adapter.fetch('calendar', input);
-          resultText = JSON.stringify(cal);
-        } else if (toolUse.name === 'fetch_threads') {
-          const input = toolUse.input as { since: string };
-          const threads = await adapter.fetch('threads', input);
-          resultText = JSON.stringify(threads);
-        } else if (toolUse.name === 'fetch_mail') {
-          const input = toolUse.input as { since: string };
-          const mail = await adapter.fetch('mail', input);
-          resultText = JSON.stringify(mail);
-        } else if (toolUse.name === 'fetch_docs') {
-          const input = toolUse.input as { query: string };
-          const docs = await adapter.fetch('docs', input);
-          resultText = JSON.stringify(docs);
-        } else {
-          resultText = `Unknown tool: ${toolUse.name}`;
-        }
-      } catch (err) {
-        resultText = `Tool error: ${(err as Error).message}`;
-      }
-
-      emit(run, {
-        type: 'agent:tool-result',
-        runId: run.runId,
-        agent,
-        tool: toolUse.name,
-        output: resultText.length > 1200 ? `${resultText.slice(0, 1200)}…` : resultText,
-        ts: Date.now(),
-      });
-
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: toolUse.id,
-        content: resultText,
-      });
     }
+
+    const toolResults: Anthropic.Messages.ToolResultBlockParam[] = await Promise.all(
+      toolUses.map(async (toolUse) => {
+        let resultText = '';
+        try {
+          if (toolUse.name === 'submit') {
+            const sub = toolUse.input as { output: unknown; confidence: number; notes?: string };
+            submission = onSubmit(sub);
+            resultText = 'submitted';
+          } else if (toolUse.name === 'fetch_sprint_board') {
+            const board = await adapter.fetch('sprint-board', {});
+            resultText = JSON.stringify(board);
+          } else if (toolUse.name === 'fetch_calendar') {
+            const input = toolUse.input as { rangeStart: string; rangeEnd: string };
+            const cal = await adapter.fetch('calendar', input);
+            resultText = JSON.stringify(cal);
+          } else if (toolUse.name === 'fetch_threads') {
+            const input = toolUse.input as { since: string };
+            const threads = await adapter.fetch('threads', input);
+            resultText = JSON.stringify(threads);
+          } else if (toolUse.name === 'fetch_mail') {
+            const input = toolUse.input as { since: string };
+            const mail = await adapter.fetch('mail', input);
+            resultText = JSON.stringify(mail);
+          } else if (toolUse.name === 'fetch_docs') {
+            const input = toolUse.input as { query: string };
+            const docs = await adapter.fetch('docs', input);
+            resultText = JSON.stringify(docs);
+          } else {
+            resultText = `Unknown tool: ${toolUse.name}`;
+          }
+        } catch (err) {
+          resultText = `Tool error: ${(err as Error).message}`;
+        }
+
+        emit(run, {
+          type: 'agent:tool-result',
+          runId: run.runId,
+          agent,
+          tool: toolUse.name,
+          output: resultText.length > 1200 ? `${resultText.slice(0, 1200)}…` : resultText,
+          ts: Date.now(),
+        });
+
+        return {
+          type: 'tool_result' as const,
+          tool_use_id: toolUse.id,
+          content: resultText,
+        };
+      }),
+    );
 
     messages.push({ role: 'user', content: toolResults });
 

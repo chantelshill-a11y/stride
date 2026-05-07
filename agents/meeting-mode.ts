@@ -54,14 +54,30 @@ export async function runMeetingMode(run: Run, input: MeetingModeInput): Promise
   const tracker0 = await loadTracker();
   const sprintBoard = await getAdapter('synthetic').fetch('sprint-board', {});
 
-  // 1) Action Tracker (transcript) + Reviewer + gate.
-  const actions = await runActionTracker(run, { tracker: tracker0, transcript });
-  const actionsCritique = await runReviewerAnalyst(
-    run,
-    'action-tracker',
-    actions,
-    `Source: meeting transcript "${meetingTitle}". Existing tracker action items were provided.`,
-  );
+  // 1) Action Tracker + Risk Detective fan out in parallel — both read the
+  //    same transcript independently. Halves the wall-clock for this phase.
+  const [actions, risk] = await Promise.all([
+    runActionTracker(run, { tracker: tracker0, transcript }),
+    runRiskDetective(run, { tracker: tracker0, transcript }),
+  ]);
+
+  // 2) Reviewers parallel too.
+  const [actionsCritique, riskCritique] = await Promise.all([
+    runReviewerAnalyst(
+      run,
+      'action-tracker',
+      actions,
+      `Source: meeting transcript "${meetingTitle}". Existing tracker action items were provided.`,
+    ),
+    runReviewerAnalyst(
+      run,
+      'risk-detective',
+      risk,
+      `Source: meeting transcript "${meetingTitle}". Existing tracker risks were provided.`,
+    ),
+  ]);
+
+  // 3) Sequential HITL gates so the PM processes one decision at a time.
   let approvedActions: ActionTrackerOutput;
   try {
     approvedActions = await gate<ActionTrackerOutput>(run, {
@@ -77,14 +93,6 @@ export async function runMeetingMode(run: Run, input: MeetingModeInput): Promise
     throw err;
   }
 
-  // 2) Risk Detective (transcript) + Reviewer + gate.
-  const risk = await runRiskDetective(run, { tracker: tracker0, transcript });
-  const riskCritique = await runReviewerAnalyst(
-    run,
-    'risk-detective',
-    risk,
-    `Source: meeting transcript "${meetingTitle}". Existing tracker risks were provided.`,
-  );
   let approvedRisk: RiskDetectiveOutput;
   try {
     approvedRisk = await gate<RiskDetectiveOutput>(run, {

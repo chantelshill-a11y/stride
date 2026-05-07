@@ -25,7 +25,11 @@ export function client(): Anthropic {
 
 export const MODELS = {
   doer: process.env.STRIDE_DOER_MODEL ?? 'claude-sonnet-4-6',
-  reviewer: process.env.STRIDE_REVIEWER_MODEL ?? 'claude-opus-4-7',
+  // Reviewer prompt is structured ("does this output's shape hold up,
+  // are claims grounded, is tone right for audience") — Sonnet handles it
+  // fine and is ~2× faster than Opus in wall-clock. Override via env if
+  // a domain calls for the slower, more skeptical Opus reviewer.
+  reviewer: process.env.STRIDE_REVIEWER_MODEL ?? 'claude-sonnet-4-6',
   orchestrator: process.env.STRIDE_ORCHESTRATOR_MODEL ?? 'claude-opus-4-7',
 };
 

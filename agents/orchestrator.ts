@@ -96,14 +96,48 @@ export async function runMorningBrief(run: Run): Promise<void> {
   const tracker0 = await loadTracker();
   const sprintBoard = await getAdapter('synthetic').fetch('sprint-board', {});
 
-  // 1) Status Synthesizer + Reviewer + gate.
-  const status = await runStatusSynthesizer(run);
-  const statusCritique = await runReviewerAnalyst(
-    run,
-    'status-synthesizer',
-    status,
-    'Source: Northridge sprint board + threads + mail.',
-  );
+  // 1) Run the four input doers in parallel — none of them depends on
+  //    another's output (they all read source data from the integration
+  //    adapter, plus the prior tracker state). This is the largest
+  //    wall-clock win in the workflow: 4× ~10s sequential becomes ~12s.
+  const [status, risk, prep, actions] = await Promise.all([
+    runStatusSynthesizer(run),
+    runRiskDetective(run, { tracker: tracker0 }),
+    runMeetingPrep(run),
+    runActionTracker(run, { tracker: tracker0 }),
+  ]);
+
+  // 2) Reviewers fan-out in parallel too. Each reviewer is independent.
+  const [statusCritique, riskCritique, prepCritique, actionsCritique] = await Promise.all([
+    runReviewerAnalyst(
+      run,
+      'status-synthesizer',
+      status,
+      'Source: Northridge sprint board + threads + mail.',
+    ),
+    runReviewerAnalyst(
+      run,
+      'risk-detective',
+      risk,
+      'Source: sprint board + threads + mail. Existing tracker risks were provided.',
+    ),
+    runReviewerAnalyst(
+      run,
+      'meeting-prep',
+      prep,
+      "Source: today's calendar + per-meeting context from threads, mail, and docs.",
+    ),
+    runReviewerAnalyst(
+      run,
+      'action-tracker',
+      actions,
+      'Source: threads + mail since 24h ago. Existing tracker action items were provided.',
+    ),
+  ]);
+
+  // 3) Sequential HITL gates so the PM processes one decision at a time.
+  //    The doers + reviewers are already done at this point — gates are
+  //    just user-pacing, not blocking compute.
   let approvedStatus: StatusSynthesizerOutput;
   try {
     approvedStatus = await gate<StatusSynthesizerOutput>(run, {
@@ -119,14 +153,6 @@ export async function runMorningBrief(run: Run): Promise<void> {
     throw err;
   }
 
-  // 2) Risk Detective + Reviewer + gate.
-  const risk = await runRiskDetective(run, { tracker: tracker0 });
-  const riskCritique = await runReviewerAnalyst(
-    run,
-    'risk-detective',
-    risk,
-    'Source: sprint board + threads + mail. Existing tracker risks were provided.',
-  );
   let approvedRisk: RiskDetectiveOutput;
   try {
     approvedRisk = await gate<RiskDetectiveOutput>(run, {
@@ -142,14 +168,6 @@ export async function runMorningBrief(run: Run): Promise<void> {
     throw err;
   }
 
-  // 3) Meeting Prep + Reviewer + gate.
-  const prep = await runMeetingPrep(run);
-  const prepCritique = await runReviewerAnalyst(
-    run,
-    'meeting-prep',
-    prep,
-    'Source: today\'s calendar + per-meeting context from threads, mail, and docs.',
-  );
   let approvedPrep: MeetingPrepOutput;
   try {
     approvedPrep = await gate<MeetingPrepOutput>(run, {
@@ -165,14 +183,6 @@ export async function runMorningBrief(run: Run): Promise<void> {
     throw err;
   }
 
-  // 4) Action Tracker (standing mode) + Reviewer + gate.
-  const actions = await runActionTracker(run, { tracker: tracker0 });
-  const actionsCritique = await runReviewerAnalyst(
-    run,
-    'action-tracker',
-    actions,
-    'Source: threads + mail since 24h ago. Existing tracker action items were provided.',
-  );
   let approvedActions: ActionTrackerOutput;
   try {
     approvedActions = await gate<ActionTrackerOutput>(run, {
